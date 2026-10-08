@@ -98,20 +98,33 @@ class Pipeline:
         self.session.set_status("prepare", "收到书页，正在摆正")
 
         raw = await asyncio.to_thread(imaging.decode, data)
-        image, rectified = raw, False
-        if s.rectify:
-            image, rectified = await asyncio.to_thread(imaging.rectify, raw)
-        image = await asyncio.to_thread(imaging.enhance, image)
+        image = await asyncio.to_thread(imaging.enhance, raw)
+
+        # 只跑检测不跑识别，比整条流程便宜得多。这一次拿到的文字框同时用来
+        # 判页面朝向，以及反推页面四边形。
+        boxes: list = []
+        if s.auto_rotate or s.rectify:
+            boxes = await asyncio.to_thread(self.ocr.detect, image)
 
         # 手机横着拿的时候，书页在画面里是躺着的。先转正，后面的分割和识别才有意义。
         rotated = False
-        if s.auto_rotate:
-            probe = await asyncio.to_thread(imaging.shrink, image, 1000)
-            boxes = await asyncio.to_thread(self.ocr.detect, probe)
-            if imaging.looks_sideways(boxes):
-                turns = await asyncio.to_thread(self._pick_turn, image)
-                image = await asyncio.to_thread(imaging.quarter_turn, image, turns)
-                rotated = True
+        if s.auto_rotate and imaging.looks_sideways(boxes):
+            turns = await asyncio.to_thread(self._pick_turn, image)
+            image = await asyncio.to_thread(imaging.quarter_turn, image, turns)
+            rotated = True
+            boxes = await asyncio.to_thread(self.ocr.detect, image)
+
+        # 截取并摆正。优先用文字块反推：纸的轮廓经常靠不住（白纸浅桌、书页弯曲、
+        # 页边被手压住），但文字一定在纸上。文字框太少时才退回去找纸边。
+        rectified = False
+        if s.rectify:
+            quad = imaging.page_quad_from_text(boxes, image.shape)
+            if quad is not None:
+                warped = await asyncio.to_thread(imaging.warp_quad, image, quad)
+                if warped is not None:
+                    image, rectified = warped, True
+            if not rectified:
+                image, rectified = await asyncio.to_thread(imaging.rectify, image)
 
         signature = imaging.dhash(imaging.to_gray(imaging.shrink(image, 480)))
 

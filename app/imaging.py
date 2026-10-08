@@ -149,6 +149,130 @@ def rectify(img: np.ndarray) -> tuple[np.ndarray, bool]:
     return cv2.warpPerspective(img, matrix, (tw, th), flags=cv2.INTER_CUBIC), True
 
 
+def _fit_line(points):
+    """主成分意义下拟合一条直线，返回 (线上一点, 方向)。"""
+    pts = np.asarray(points, np.float64)
+    center = pts.mean(axis=0)
+    axis = np.linalg.svd(pts - center, full_matrices=False)[2][0]
+    return center, axis
+
+
+def _meet(first, second):
+    """两条直线的交点。基本平行时返回 None。"""
+    (c1, d1), (c2, d2) = first, second
+    matrix = np.array([d1, -d2], np.float64).T
+    if abs(float(np.linalg.det(matrix))) < 1e-8:
+        return None
+    t = np.linalg.solve(matrix, c2 - c1)
+    return c1 + float(t[0]) * d1
+
+
+def _pick_line(pool, sequence, need_span: float, axis: int):
+    """按给定顺序取若干行拼成一条边，直到这些点在 axis 方向上铺开得够宽。
+
+    固定取「最下面三行」是不行的：行尾短的时候这几个点在横向上挤成一堆，
+    拟合出来会是一条竖线。所以按铺开宽度决定取几行。
+    """
+    picked: list = []
+    for index in sequence:
+        picked.append(pool[index])
+        joined = np.vstack(picked)
+        if len(picked) >= 2 and float(np.ptp(joined[:, axis])) >= need_span:
+            break
+    return _fit_line(np.vstack(picked))
+
+
+def _valid_quad(quad, shape) -> bool:
+    height, width = shape[:2]
+    # 四个角都得落在画面里（留 15% 余量）。有一条边拟合歪了，交点就会飞到天边，
+    # 这种四边形拉出来是废图，必须拦住，让它退回纸边法。
+    margin_x, margin_y = width * 0.15, height * 0.15
+    if (
+        quad[:, 0].min() < -margin_x
+        or quad[:, 0].max() > width + margin_x
+        or quad[:, 1].min() < -margin_y
+        or quad[:, 1].max() > height + margin_y
+    ):
+        return False
+    if not cv2.isContourConvex(quad.reshape(-1, 1, 2)):
+        return False
+    return 0.08 <= cv2.contourArea(quad.astype(np.float32)) / float(width * height) <= 0.995
+
+
+def page_quad_from_text(boxes, shape, min_boxes: int = 8) -> np.ndarray | None:
+    """用文字行拟合正文区域的四边形。
+
+    靠纸的轮廓去截页面在现实中经常不成立：白纸摆在浅色桌面上根本分不出边界，
+    翻开的书页本身还是弯的，页边还可能被手指压住。但文字一定落在纸上，而且正文块
+    在现实里就是个矩形——投影歪成什么样，都能从它的四条边反推回来。
+
+    四条边各用各的样本：上边从最顶上的行往下取、下边从最底下的行往上取、
+    左边看所有行的左端、右边**只**看最长的那几行——行尾参差不齐，全拿去拟合
+    会把右边界拉进正文里。取到哪一行为止由「这些点在对应方向上有没有铺开」决定。
+    """
+    if len(boxes) < min_boxes:
+        return None
+
+    quads = [np.asarray(b, np.float32).reshape(4, 2) for b in boxes]
+    top_corners, bottom_corners, left_corners, right_corners = [], [], [], []
+    centers, widths = [], []
+    for quad in quads:
+        # 检测器给的顺序是「左上→右上→右下→左下」，直接按边取。
+        # 千万别按坐标排序去挑上下角：页面被透视拉过之后行本身是斜的，
+        # 左边比右边高，按 y 排会把「左下角」当成「右上角」，整条上边就废了。
+        if float(np.linalg.norm(quad[1] - quad[0])) < float(np.linalg.norm(quad[3] - quad[0])):
+            quad = quad[[0, 3, 2, 1]]          # 框是竖的，先掰成横的
+        top_corners.append(quad[[0, 1]])
+        bottom_corners.append(quad[[3, 2]])
+        left_corners.append(quad[[0, 3]])
+        right_corners.append(quad[[1, 2]])
+        centers.append(float(quad[:, 1].mean()))
+        widths.append(float(quad[:, 0].max() - quad[:, 0].min()))
+
+    points = np.vstack(quads)
+    need_x = float(np.ptp(points[:, 0])) * 0.6
+    need_y = float(np.ptp(points[:, 1])) * 0.6
+    top_to_bottom = np.argsort(centers)
+    widest_first = np.argsort(widths)[::-1]
+
+    top = _pick_line(top_corners, top_to_bottom, need_x, 0)
+    bottom = _pick_line(bottom_corners, top_to_bottom[::-1], need_x, 0)
+    left = _pick_line(left_corners, top_to_bottom, need_y, 1)
+    right = _pick_line(right_corners, widest_first, need_y, 1)
+
+    corners = [_meet(top, left), _meet(top, right), _meet(bottom, right), _meet(bottom, left)]
+    if all(corner is not None for corner in corners):
+        quad = np.array(corners, np.float32)
+        if _valid_quad(quad, shape):
+            return quad
+
+    # 四条边基本平行（页面本来就平）时交点不存在，退回最小外接矩形：
+    # 至少把倾斜和多余背景去掉，比什么都不做强。
+    quad = cv2.boxPoints(cv2.minAreaRect(points.astype(np.float32))).astype(np.float32)
+    if _valid_quad(quad, shape):
+        return quad
+    return None
+
+
+def warp_quad(img: np.ndarray, quad: np.ndarray, pad: float = 0.04) -> np.ndarray | None:
+    """把四边形里的内容拉成矩形，四周留一点余量。"""
+    height, width = img.shape[:2]
+    src = _order_points(quad)
+    center = src.mean(axis=0)
+    src = center + (src - center) * (1.0 + pad)
+    src[:, 0] = np.clip(src[:, 0], 0, width - 1)
+    src[:, 1] = np.clip(src[:, 1], 0, height - 1)
+
+    tw = int(max(np.linalg.norm(src[0] - src[1]), np.linalg.norm(src[2] - src[3])))
+    th = int(max(np.linalg.norm(src[0] - src[3]), np.linalg.norm(src[1] - src[2])))
+    if tw < 200 or th < 200 or not 0.2 <= tw / float(th) <= 5.0:
+        return None
+
+    dst = np.float32([[0, 0], [tw - 1, 0], [tw - 1, th - 1], [0, th - 1]])
+    matrix = cv2.getPerspectiveTransform(src, dst)
+    return cv2.warpPerspective(img, matrix, (tw, th), flags=cv2.INTER_CUBIC)
+
+
 # ---------- 双页分割 ----------
 
 

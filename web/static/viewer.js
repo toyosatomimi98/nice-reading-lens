@@ -42,6 +42,7 @@ const app = {
   mode: 'standard',
   ws: null,
   follow: true,
+  camera: {},
 };
 
 const esc = (s) =>
@@ -60,6 +61,7 @@ async function boot() {
   ]);
   app.pages = doc.pages || [];
   app.status = doc.status || app.status;
+  app.camera = doc.camera || {};
   app.settings = settings;
   app.info = info;
   app.glossary = glossary;
@@ -80,6 +82,7 @@ function connect() {
     if (msg.type === 'hello') {
       app.pages = msg.pages || [];
       app.status = msg.status || app.status;
+      app.camera = msg.camera || app.camera;
       app.settings = msg.settings || app.settings;
       if (!app.currentId && app.pages.length) app.currentId = lastId();
       renderAll();
@@ -107,6 +110,9 @@ function connect() {
     } else if (msg.type === 'settings') {
       app.settings = msg.settings;
       syncChrome();
+    } else if (msg.type === 'camera') {
+      app.camera = msg.camera || {};
+      renderCamera();
     } else if (msg.type === 'reset') {
       app.pages = [];
       app.currentId = null;
@@ -143,22 +149,23 @@ function renderAll() {
   renderRail();
   renderMain(false);
   syncChrome();
+  renderCamera();
 }
 
 function renderRail() {
-  const rail = $('rail');
+  const thumbs = $('thumbs');
   if (!app.pages.length) {
-    rail.innerHTML = '<div class="empty">还没有页面</div>';
+    thumbs.innerHTML = '<div class="empty">还没有页面</div>';
     return;
   }
-  rail.innerHTML = app.pages
+  thumbs.innerHTML = app.pages
     .map(
       (p) => `<button class="thumb${p.id === app.currentId ? ' on' : ''}" data-id="${p.id}">
         <img src="/api/page/${p.id}/thumb" alt="第 ${p.index} 页">
       </button>`
     )
     .join('');
-  rail.querySelectorAll('.thumb').forEach((el) =>
+  thumbs.querySelectorAll('.thumb').forEach((el) =>
     el.addEventListener('click', () => {
       app.currentId = el.dataset.id;
       app.follow = el.dataset.id === lastId();
@@ -166,6 +173,37 @@ function renderRail() {
     })
   );
 }
+
+/* ---------- 取景面板 ---------- */
+
+function renderCamera() {
+  const dot = $('cam-dot');
+  if (!dot) return;
+  const cam = app.camera || {};
+  const online = !!cam.online;
+  const img = $('cam-img');
+
+  dot.className = 'dot' + (online ? ' live' : '');
+  let label = online ? '取景中' : '未连接';
+  if (online && cam.video && cam.video[0]) label += ` ${cam.video[0]}×${cam.video[1]}`;
+  if (cam.requested_at) label = '已请求采集…';
+  $('cam-text').textContent = label;
+  $('cam-shot').disabled = !online;
+
+  if (!online) {
+    img.hidden = true;
+    img.removeAttribute('src');
+  }
+}
+
+/* 预览图直接当普通图片轮询，比走 WebSocket 推 base64 省事得多 */
+setInterval(() => {
+  const img = $('cam-img');
+  if (!img || document.hidden) return;
+  if (!app.camera || !app.camera.online) return;
+  img.hidden = false;
+  img.src = `/api/camera/frame?t=${Date.now()}`;
+}, 1200);
 
 /* ---------- 正文 ---------- */
 
@@ -505,6 +543,15 @@ $('toggle-source').addEventListener('click', () => {
   send({ type: 'config', patch: { show_original: app.settings.show_original } });
   syncChrome();
   renderMain(true);
+});
+
+$('cam-shot').addEventListener('click', async () => {
+  try {
+    await fetch('/api/capture', { method: 'POST' });
+    toast('已通知手机采集这一页');
+  } catch (err) {
+    toast('发送失败：' + err.message);
+  }
 });
 
 main.addEventListener('click', () => {

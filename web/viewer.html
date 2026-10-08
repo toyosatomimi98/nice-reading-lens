@@ -20,7 +20,17 @@
     <button id="open-drawer">设置 / 连手机</button>
   </header>
 
-  <aside class="rail" id="rail"></aside>
+  <aside class="rail">
+    <div class="camera">
+      <div class="cam-preview"><img id="cam-img" alt="取景预览" hidden></div>
+      <div class="cam-row">
+        <span class="dot" id="cam-dot"></span>
+        <span id="cam-text">未连接</span>
+      </div>
+      <button id="cam-shot" disabled>采集这一页</button>
+    </div>
+    <div class="thumbs" id="thumbs"></div>
+  </aside>
   <main class="stage-main" id="main"></main>
 
   <div class="scrim" id="scrim"></div>

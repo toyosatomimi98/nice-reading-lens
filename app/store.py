@@ -52,6 +52,15 @@ class Session:
             "page": None,
             "since": time.time(),
         }
+        # 手机那边的取景状态。在线与否只看「多久没收到预览帧」。
+        self.camera: dict = {
+            "verdict": "—",
+            "frames": 0,
+            "video": [0, 0],
+            "last_seen": 0.0,
+            "requested_at": 0.0,
+        }
+        self.preview: bytes | None = None
         self._load()
 
     # ---- 落盘 ----
@@ -111,8 +120,44 @@ class Session:
             {"type": "page.focus", "id": page_id, "reason": reason}
         )
 
+    # ---- 取景状态 ----
+
+    def touch_camera(self, verdict: str | None = None, size=None, preview: bytes | None = None) -> dict:
+        self.camera["last_seen"] = time.time()
+        self.camera["frames"] += 1
+        if verdict:
+            self.camera["verdict"] = verdict
+        if size and size[0] and size[1]:
+            self.camera["video"] = [int(size[0]), int(size[1])]
+        if preview:
+            self.preview = preview
+        return self.camera
+
+    def camera_state(self) -> dict:
+        """给前端的取景状态。十来秒没收到预览帧就当掉线——采集一页要几秒，
+        阈值定太紧会在抓图期间闪一下离线。"""
+        last = float(self.camera["last_seen"])
+        age = time.time() - last if last else None
+        state = dict(self.camera)
+        state["online"] = bool(last) and age is not None and age < 10.0
+        state["age"] = round(age, 1) if age is not None else None
+        state["has_preview"] = self.preview is not None
+        return state
+
+    def request_capture(self) -> None:
+        """电脑端点「采集」。手机下一次回传预览帧时会收到这个请求。"""
+        self.camera["requested_at"] = time.time()
+        self.hub.publish({"type": "camera", "camera": self.camera_state()})
+
+    def take_capture_request(self) -> bool:
+        asked = float(self.camera["requested_at"])
+        if not asked or time.time() - asked > 15.0:
+            return False
+        self.camera["requested_at"] = 0.0
+        return True
+
     def snapshot(self) -> dict:
-        return {"pages": self.pages, "status": self.status}
+        return {"pages": self.pages, "status": self.status, "camera": self.camera_state()}
 
     def reset(self) -> None:
         for page in self.pages:

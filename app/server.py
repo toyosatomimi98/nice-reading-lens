@@ -9,7 +9,15 @@ import os
 import socket
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -81,16 +89,48 @@ def create_app() -> FastAPI:
     # ---- 取景接口（手机）----
 
     @app.post("/api/probe")
-    async def probe(frame: UploadFile = File(...)) -> JSONResponse:
+    async def probe(
+        frame: UploadFile = File(...),
+        w: int = Form(default=0),
+        h: int = Form(default=0),
+    ) -> JSONResponse:
         data = await frame.read()
+        # 电脑端点过「采集」就先把它兑现，优先级高于自动翻页判定
+        manual = session.take_capture_request()
         try:
             result = await asyncio.to_thread(pipeline.probe, data)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if manual:
+            result["action"] = "capture"
+            result["verdict"] = "manual"
+        session.touch_camera(result.get("verdict"), (w, h), data)
+        session.hub.publish({"type": "camera", "camera": session.camera_state()})
         s = config.value
         result["probe_interval_ms"] = s.probe_interval_ms
         result["probe_width"] = s.probe_width
         return JSONResponse(result)
+
+    @app.get("/api/camera")
+    async def camera_state() -> JSONResponse:
+        return JSONResponse(session.camera_state())
+
+    @app.get("/api/camera/frame")
+    async def camera_frame() -> Response:
+        """最新一帧预览。前端拿它当「手机还在看着呢」的可视化。"""
+        if not session.preview:
+            return Response(status_code=204)
+        return Response(
+            content=session.preview,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.post("/api/capture")
+    async def request_capture() -> JSONResponse:
+        """电脑端让手机马上抓一张，不用等它自己判定翻页。"""
+        session.request_capture()
+        return JSONResponse({"ok": True, "camera": session.camera_state()})
 
     @app.post("/api/page")
     async def submit_page(image: UploadFile = File(...)) -> JSONResponse:

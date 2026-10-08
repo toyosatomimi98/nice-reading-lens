@@ -107,15 +107,17 @@ async function probeLoop() {
       const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.55));
       const form = new FormData();
       form.append('frame', blob, 'probe.jpg');
+      form.append('w', String($('video').videoWidth || 0));
+      form.append('h', String($('video').videoHeight || 0));
       const res = await fetch('/api/probe', { method: 'POST', body: form });
       const data = await res.json();
       if (typeof data.probe_interval_ms === 'number') state.intervalMs = data.probe_interval_ms;
       if (typeof data.probe_width === 'number') state.probeWidth = data.probe_width;
-      $('m-verdict').textContent = data.verdict || '—';
+      $('m-verdict').textContent = data.verdict === 'manual' ? '手动' : data.verdict || '—';
       state.probeCount += 1;
       state.probeWindow += 1;
       if (data.action === 'capture') {
-        log('判定：翻页 → 抓一张高清图');
+        log(data.verdict === 'manual' ? '电脑端点名要这一页' : '判定：翻页 → 抓一张高清图');
         await captureStill();
       }
     } catch (err) {

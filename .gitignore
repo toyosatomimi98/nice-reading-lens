@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
+.vscode/
 
 # 运行期产物：页面图、会话索引、翻译缓存、证书
 data/pages/

@@ -11,6 +11,7 @@ import re
 import numpy as np
 
 PAGE_NUMBER = re.compile(r"^(page\s*)?[\divxlcdm]{1,7}$", re.I)
+BARE_NUMBER = re.compile(r"^[\s\[\(（]*\d{1,4}[\s\]\)）]*$")
 CAPTION = re.compile(r"^(fig(ure)?\.?|table|exhibit|chart|box)\s*\d+", re.I)
 HEADING = re.compile(
     r"^(chapter|part|section|appendix|prologue|epilogue|"
@@ -101,6 +102,68 @@ def _classify(text: str, height: float, body_height: float, line_count: int) -> 
     if text.isupper() and 8 <= len(text) <= 80 and line_count <= 2:
         return "heading"
     return "paragraph"
+
+
+def order_score(texts: list[str]) -> int:
+    """一串按顺序排好的行，读起来有多像正常排版。
+
+    小写开头说明上一句还没完，是正常排版里最常见的衔接；上一行没结束却大写
+    开头就有点可疑。单靠它区分正反并不可靠（实测只差一两分），所以只当页码
+    那条判据失效时的参考。
+    """
+    score = 0
+    for prev, cur in zip(texts, texts[1:]):
+        p, c = prev.strip(), cur.strip()
+        if not p or not c:
+            continue
+        if c[0].islower():
+            score += 1
+        elif p[-1] not in '.!?"”':
+            score -= 1
+    return score
+
+
+def looks_flipped(lines: list[dict]) -> bool:
+    """整页倒 180° 了没有。
+
+    倒过来时每行的文字本身是对的——引擎的角度分类器会逐行纠正 180°——但行的
+    先后顺序整个反了，于是译文从最后一句开始。这是最难判的一种情况：文字层面
+    完全看不出问题。
+
+    最可靠的方位标是页码：书里几乎每页都有，而且只会压在正文下方。页码跑到
+    正文上方去了，页面就是倒的。没有页码的页面（章节首页、整页插图）退回看
+    句子衔接，而且要求差距明显才翻——翻错的代价比不翻大得多。
+    """
+    if len(lines) < 6:
+        return False
+
+    boxes = [np.asarray(line["box"], np.float32) for line in lines]
+    tops = np.array([box[:, 1].min() for box in boxes], np.float64)
+    lefts = np.array([box[:, 0].min() for box in boxes], np.float64)
+    rights = np.array([box[:, 0].max() for box in boxes], np.float64)
+    span = float(tops.max() - tops.min())
+    width = float(np.percentile(rights, 80) - np.percentile(lefts, 20))
+    if span <= 0 or width <= 0:
+        return False
+
+    for line, box, top in zip(lines, boxes, tops):
+        if not BARE_NUMBER.match(line["text"].strip()):
+            continue
+        if float(box[:, 0].max() - box[:, 0].min()) > 0.18 * width:
+            continue  # 太宽了，大概是正文里的数字，不是页码
+        where = (float(top) - float(tops.min())) / span
+        if where < 0.12:
+            return True  # 页码在最上面 → 页面倒着
+        if where > 0.88:
+            return False  # 页码在最下面 → 正常
+
+    order = np.argsort(tops)
+    texts = [lines[int(i)]["text"] for i in order]
+    if word_score(texts) < 0.15:
+        return False  # 识别结果本身就不可信，别拿它当依据
+    forward = order_score(texts)
+    backward = order_score(list(reversed(texts)))
+    return backward > forward
 
 
 def _head_like(row: dict, body_height: float) -> bool:

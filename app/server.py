@@ -7,6 +7,7 @@ import io
 import json
 import os
 import socket
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import (
@@ -22,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import CERT_DIR, DATA_DIR, PAGES_DIR, WEB_DIR, Config
+from . import imaging
 from .pipeline import Pipeline
 from .store import Session
 
@@ -161,6 +163,40 @@ def create_app() -> FastAPI:
         if not path.exists():
             raise HTTPException(status_code=404, detail="图像不存在")
         return FileResponse(path, media_type="image/jpeg")
+
+    @app.post("/api/page/{page_id}/flip")
+    async def flip_page(page_id: str) -> JSONResponse:
+        """整页翻 180°：图、每个块的坐标、块的先后顺序一起翻。
+
+        自动判断页面倒没倒终究是启发式，这条是留给用户的后路——一眼看出顺序反了，
+        点一下就好，不用重新拍。
+        """
+        page = session.by_id.get(page_id)
+        if page is None:
+            raise HTTPException(status_code=404, detail="没有这一页")
+
+        for kind in ("view", "raw", "thumb"):
+            path = session.path_for(page_id, kind)
+            if not path.exists():
+                continue
+            data = await asyncio.to_thread(path.read_bytes)
+            turned = await asyncio.to_thread(
+                lambda raw: imaging.encode_jpeg(imaging.rotate_half(imaging.decode(raw)), 88),
+                data,
+            )
+            await asyncio.to_thread(path.write_bytes, turned)
+
+        width, height = int(page["width"]), int(page["height"])
+        for block in page["blocks"]:
+            x0, y0, x1, y1 = block["rect"]
+            block["rect"] = [width - x1, height - y1, width - x0, height - y0]
+        page["blocks"].reverse()
+        for index, block in enumerate(page["blocks"], start=1):
+            block["order"] = index
+        page["flipped"] = not page.get("flipped", False)
+        page["rev"] = time.time()
+        session.update_page(page)
+        return JSONResponse({"ok": True, "flipped": page["flipped"]})
 
     @app.get("/api/config")
     async def get_config() -> JSONResponse:

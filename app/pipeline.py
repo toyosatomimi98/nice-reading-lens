@@ -8,9 +8,11 @@ import json
 import time
 from pathlib import Path
 
+import numpy as np
+
 from . import imaging
 from .gate import PageGate
-from .layout import build_blocks, word_score
+from .layout import build_blocks, looks_flipped, word_score
 from .ocr import OcrEngine
 from .store import Session
 from .translate import Translator
@@ -131,15 +133,31 @@ class Pipeline:
         pieces = imaging.split_spread(image, s.split_mode, s.split_order)
         self.session.set_status("ocr", "正在识别文字", None)
         ocr_started = time.time()
-        blocks: list[dict] = []
+        lined: list[tuple[str, list[dict]]] = []
         for piece in pieces:
-            local = await asyncio.to_thread(
+            lines_of_piece = await asyncio.to_thread(
                 self.ocr.read, piece["image"], s.min_confidence
             )
-            blocks.extend(
-                build_blocks(local, origin=piece["offset"], side=piece["label"])
-            )
+            ox, oy = piece["offset"]
+            for line in lines_of_piece:
+                points = np.asarray(line["box"], np.float32)
+                points[:, 0] += ox
+                points[:, 1] += oy
+                line["box"] = points.tolist()
+            lined.append((piece["label"], lines_of_piece))
         ocr_ms = int((time.time() - ocr_started) * 1000)
+
+        # 整页倒 180° 的时候，每行文字本身是对的（引擎逐行纠正了），但行的先后
+        # 顺序整个反了，译文会从最后一句开始。这种情况必须在合成段落之前发现。
+        flipped = False
+        if s.auto_rotate and len(lined) == 1 and looks_flipped(lined[0][1]):
+            image = await asyncio.to_thread(imaging.rotate_half, image)
+            imaging.flip_lines(lined[0][1], image.shape)
+            flipped = True
+
+        blocks: list[dict] = []
+        for label, lines_of_piece in lined:
+            blocks.extend(build_blocks(lines_of_piece, (0, 0), label))
 
         if not blocks:
             self.session.set_status("error", "这一页没识别出文字，换个角度再试试")
@@ -179,6 +197,7 @@ class Pipeline:
             "height": int(image.shape[0]),
             "rectified": rectified,
             "rotated": rotated,
+            "flipped": flipped,
             "split": [p["label"] for p in pieces],
             "hash": signature,
             "source_text": " ".join(texts)[:4000],

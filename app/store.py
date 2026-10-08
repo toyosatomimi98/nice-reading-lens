@@ -100,6 +100,11 @@ class Session:
         self.hub.publish({"type": "page.add", "page": page, "index": index})
         return index
 
+    def update_page(self, page: dict) -> None:
+        """页面内容被改过（比如整页翻转），存盘并通知前端。"""
+        self._save()
+        self.hub.publish({"type": "page.update", "page": page})
+
     def path_for(self, page_id: str, kind: str) -> Path:
         return self.dir / f"{page_id}.{kind}.jpg"
 

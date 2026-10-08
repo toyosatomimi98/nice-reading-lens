@@ -104,6 +104,10 @@ function connect() {
     } else if (msg.type === 'page.focus') {
       app.currentId = msg.id;
       renderAll();
+    } else if (msg.type === 'page.update') {
+      const at = app.pages.findIndex((p) => p.id === msg.page.id);
+      if (at >= 0) app.pages[at] = msg.page;
+      if (app.currentId === msg.page.id) renderAll();
     } else if (msg.type === 'status') {
       app.status = msg.status;
       renderStatus();
@@ -161,7 +165,7 @@ function renderRail() {
   thumbs.innerHTML = app.pages
     .map(
       (p) => `<button class="thumb${p.id === app.currentId ? ' on' : ''}" data-id="${p.id}">
-        <img src="/api/page/${p.id}/thumb" alt="第 ${p.index} 页">
+        <img src="/api/page/${p.id}/thumb?r=${p.rev || 0}" alt="第 ${p.index} 页">
       </button>`
     )
     .join('');
@@ -242,7 +246,7 @@ function lightHtml(page) {
   const src = app.settings.show_original ? 'raw' : 'view';
   return `<div class="split">
     <div class="image"><div class="imgwrap">
-      <img id="pageimg" src="/api/page/${page.id}/${src}" alt="第 ${page.index} 页">
+      <img id="pageimg" src="/api/page/${page.id}/${src}?r=${page.rev || 0}" alt="第 ${page.index} 页">
       <div class="halo" id="halo"></div>
     </div></div>
     <div class="text">${page.blocks.map((b) => blockHtml(b, false)).join('')}</div>
@@ -259,6 +263,7 @@ function standardHtml(page) {
       <span class="grow" style="flex:1"></span>
       ${page.rectified ? '<span>已摆正</span>' : ''}
       ${page.rotated ? '<span>已转正</span>' : ''}
+      ${page.flipped ? '<span>已翻转</span>' : ''}
       ${page.split.length === 2 ? `<span>${page.split[0] === 'left' ? '左页在前' : '右页在前'}</span>` : ''}
     </div>
     ${page.blocks.map((b) => blockHtml(b, true)).join('')}
@@ -283,7 +288,7 @@ function immersiveHtml(page) {
     })
     .join('');
   return `<div class="scroll"><div class="immersive">
-    <div class="imgwrap"><img src="/api/page/${page.id}/${src}" alt="第 ${page.index} 页">${boxes}</div>
+    <div class="imgwrap"><img src="/api/page/${page.id}/${src}?r=${page.rev || 0}" alt="第 ${page.index} 页">${boxes}</div>
   </div></div>`;
 }
 
@@ -551,6 +556,20 @@ $('cam-shot').addEventListener('click', async () => {
     toast('已通知手机采集这一页');
   } catch (err) {
     toast('发送失败：' + err.message);
+  }
+});
+
+$('flip-page').addEventListener('click', async () => {
+  const page = currentPage();
+  if (!page) {
+    toast('还没有页面');
+    return;
+  }
+  try {
+    await fetch(`/api/page/${page.id}/flip`, { method: 'POST' });
+    toast('已翻转这一页');
+  } catch (err) {
+    toast('翻转失败：' + err.message);
   }
 });
 

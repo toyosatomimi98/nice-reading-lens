@@ -40,6 +40,22 @@ def quarter_turn(img: np.ndarray, turns: int) -> np.ndarray:
     return np.ascontiguousarray(np.rot90(img, k=turns % 4))
 
 
+def rotate_half(img: np.ndarray) -> np.ndarray:
+    """整幅倒过来（180°）。"""
+    return cv2.rotate(img, cv2.ROTATE_180)
+
+
+def flip_lines(lines: list[dict], shape) -> list[dict]:
+    """把 OCR 行的坐标跟着画面一起转 180°，这样矩形还能对得上。"""
+    height, width = shape[:2]
+    for line in lines:
+        pts = np.asarray(line["box"], np.float32)
+        pts[:, 0] = (width - 1) - pts[:, 0]
+        pts[:, 1] = (height - 1) - pts[:, 1]
+        line["box"] = pts.tolist()
+    return lines
+
+
 def looks_sideways(boxes, min_boxes: int = 5, ratio: float = 1.2) -> bool:
     """看文字框是「竖着的高条」还是「横着的长条」，判断页面有没有躺倒。
 
@@ -230,20 +246,35 @@ def page_quad_from_text(boxes, shape, min_boxes: int = 8) -> np.ndarray | None:
         widths.append(float(quad[:, 0].max() - quad[:, 0].min()))
 
     points = np.vstack(quads)
+    widths = np.asarray(widths, np.float64)
+    widest = float(widths.max()) if widths.size else 0.0
+    if widest <= 0:
+        return None
+
+    # 样本要分开挑，否则一条短行就能把整条边带歪：
+    #   · 页码、孤立小标题这类窄条（宽度不到最宽行的两成）不该参与上下边
+    #   · 行尾参差不齐，短行的右端根本不在正文右边界上，右边界只能用排满整行的
+    solid = {i for i, w in enumerate(widths) if w >= 0.20 * widest}
+    full = [i for i, w in enumerate(widths) if w >= 0.75 * widest]
+    if len(solid) < 4 or len(full) < 2:
+        return None
+
+    by_y = np.argsort(centers)
+    solid_by_y = [int(i) for i in by_y if int(i) in solid]
+    full_by_y = [int(i) for i in by_y if i in set(full)]
     need_x = float(np.ptp(points[:, 0])) * 0.6
     need_y = float(np.ptp(points[:, 1])) * 0.6
-    top_to_bottom = np.argsort(centers)
-    widest_first = np.argsort(widths)[::-1]
 
-    top = _pick_line(top_corners, top_to_bottom, need_x, 0)
-    bottom = _pick_line(bottom_corners, top_to_bottom[::-1], need_x, 0)
-    left = _pick_line(left_corners, top_to_bottom, need_y, 1)
-    right = _pick_line(right_corners, widest_first, need_y, 1)
+    top = _pick_line(top_corners, solid_by_y, need_x, 0)
+    bottom = _pick_line(bottom_corners, solid_by_y[::-1], need_x, 0)
+    left = _pick_line(left_corners, solid_by_y, need_y, 1)
+    right = _pick_line(right_corners, full_by_y, need_y, 1)
 
     corners = [_meet(top, left), _meet(top, right), _meet(bottom, right), _meet(bottom, left)]
     if all(corner is not None for corner in corners):
         quad = np.array(corners, np.float32)
-        if _valid_quad(quad, shape):
+        # 有一条边拟合歪了，四个角就排不成正常的顺时针，后面拉的透视也是废的
+        if _valid_quad(quad, shape) and np.allclose(_order_points(quad), quad, atol=1.5):
             return quad
 
     # 四条边基本平行（页面本来就平）时交点不存在，退回最小外接矩形：

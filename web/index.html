@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>纸质书阅读助手</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="landing">
+  <main>
+    <h1>纸质书阅读助手</h1>
+    <p class="sub">手机架在支架上对着书桌，翻页之后电脑这边自动出中文。</p>
+    <div class="cards">
+      <a class="card" href="/view">
+        <strong>电脑端阅读</strong>
+        <span>在这个窗口看书和译文</span>
+      </a>
+      <a class="card" href="/capture">
+        <strong>手机端取景</strong>
+        <span>手机打开这个地址，保持屏幕常亮</span>
+      </a>
+    </div>
+    <p class="hint" id="hint">正在读取本机地址…</p>
+  </main>
+  <script>
+    fetch('/api/info').then(r => r.json()).then(info => {
+      document.getElementById('hint').innerHTML =
+        '手机端地址：<code>' + info.capture_url + '</code>';
+    }).catch(() => {});
+  </script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>阅读 · 纸质书阅读助手</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="viewer">
+  <header>
+    <span class="title">纸质书阅读助手</span>
+    <span class="pill" id="status"><span class="dot"></span><span id="status-text">连接中…</span></span>
+    <span class="grow"></span>
+    <div class="seg" id="seg">
+      <button data-mode="light">轻量</button>
+      <button data-mode="standard">标准</button>
+      <button data-mode="immersive">沉浸</button>
+    </div>
+    <button id="toggle-source" title="用未摆正的原始照片核对，而不是处理过的页面">原图核对</button>
+    <button id="open-drawer">设置 / 连手机</button>
+  </header>
+
+  <aside class="rail" id="rail"></aside>
+  <main class="stage-main" id="main"></main>
+
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer"></aside>
+
+  <script src="/static/viewer.js"></script>
+</body>
+</html>

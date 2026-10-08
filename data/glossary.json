@@ -1,0 +1,19 @@
+{
+  "attention": "注意力",
+  "self-attention": "自注意力",
+  "transformer": "Transformer",
+  "embedding": "嵌入",
+  "token": "词元",
+  "tokenizer": "分词器",
+  "fine-tuning": "微调",
+  "inference": "推理",
+  "latency": "延迟",
+  "throughput": "吞吐",
+  "gradient": "梯度",
+  "checkpoint": "检查点",
+  "quantization": "量化",
+  "sequence length": "序列长度",
+  "residual connection": "残差连接",
+  "layer normalization": "层归一化",
+  "perplexity": "困惑度"
+}

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>取景 · 阅读助手</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="capture">
+  <div class="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="frame"></div>
+    <div class="overlay" id="overlay">
+      <button id="start" class="primary">开始取景</button>
+      <p class="tip">手机横放或竖放都行，把整页框进虚线里。<br>首次会提示证书不受信任，选「继续访问」。</p>
+    </div>
+  </div>
+
+  <section class="panel">
+    <div class="row">
+      <span class="dot" id="dot"></span>
+      <span id="status">未开始</span>
+      <span class="grow"></span>
+      <button id="shot" disabled>立即采集</button>
+    </div>
+    <dl class="meta">
+      <div><dt>采集分辨率</dt><dd id="m-res">—</dd></div>
+      <div><dt>预览帧</dt><dd id="m-fps">—</dd></div>
+      <div><dt>上次判定</dt><dd id="m-verdict">—</dd></div>
+      <div><dt>已送页</dt><dd id="m-pages">0</dd></div>
+    </dl>
+    <ul class="log" id="log"></ul>
+  </section>
+
+  <script src="/static/capture.js"></script>
+</body>
+</html>

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import threading
 from pathlib import Path
@@ -58,8 +59,15 @@ class Translator:
             json.dumps(self.cache, ensure_ascii=False), "utf-8"
         )
 
-    def _key(self, model: str, text: str) -> str:
-        return hashlib.sha1(f"{model}\x00{text}".encode("utf-8")).hexdigest()
+    def _key(self, engine: str, text: str) -> str:
+        """缓存按「后端+模型」分桶，换后端不会串到另一边的译文。"""
+        return hashlib.sha1(f"{engine}\x00{text}".encode("utf-8")).hexdigest()
+
+    def engine_name(self) -> str:
+        s = self.config()
+        if s.mt_backend == "openai":
+            return f"openai/{s.api_model}"
+        return f"ollama/{s.model}"
 
     # ---- 提示词 ----
 
@@ -82,6 +90,16 @@ class Translator:
 
     async def _chat(self, client: httpx.AsyncClient, system: str, prompt: str) -> str:
         s = self.config()
+        if s.mt_backend == "openai":
+            return await self._chat_openai(client, s, system, prompt)
+        return await self._chat_ollama(client, s, system, prompt)
+
+    @staticmethod
+    def api_key(s) -> str:
+        """config 里没填就读环境变量，免得把 key 明文写进配置文件。"""
+        return (s.api_key or "").strip() or os.environ.get("DEEPSEEK_API_KEY", "").strip()
+
+    async def _chat_ollama(self, client, s, system: str, prompt: str) -> str:
         payload = {
             "model": s.model,
             "stream": False,
@@ -99,8 +117,31 @@ class Translator:
         response = await client.post(
             f"{s.ollama_url.rstrip('/')}/api/chat", json=payload, timeout=300.0
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise RuntimeError(f"Ollama 返回 {response.status_code}：{response.text[:200]}")
         return (response.json().get("message") or {}).get("content", "").strip()
+
+    async def _chat_openai(self, client, s, system: str, prompt: str) -> str:
+        """OpenAI 兼容接口。DeepSeek、Moonshot、智谱、硅基流动都是这个形状。"""
+        response = await client.post(
+            f"{s.api_base.rstrip('/')}/chat/completions",
+            json={
+                "model": s.api_model,
+                "temperature": s.temperature,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            },
+            headers={"Authorization": f"Bearer {self.api_key(s)}"},
+            timeout=300.0,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"接口返回 {response.status_code}：{response.text[:200]}")
+        choices = response.json().get("choices") or []
+        if not choices:
+            raise RuntimeError("接口没返回内容")
+        return (choices[0].get("message") or {}).get("content", "").strip()
 
     def _parse(self, raw: str, expected: int) -> list[str] | None:
         marks = list(MARK.finditer(raw))
@@ -124,12 +165,15 @@ class Translator:
         s = self.config()
         glossary = glossary or {}
         context = context or {}
-        model = s.model
+        engine = self.engine_name()
+
+        if s.mt_backend == "openai" and not self.api_key(s):
+            raise RuntimeError("选了云端翻译，但没填 API Key（也可以放环境变量 DEEPSEEK_API_KEY）")
 
         results: list[str | None] = [None] * len(texts)
         pending: list[tuple[int, str]] = []
         for i, text in enumerate(texts):
-            hit = self.cache.get(self._key(model, text))
+            hit = self.cache.get(self._key(engine, text))
             if hit:
                 results[i] = hit
             else:
@@ -179,7 +223,7 @@ class Translator:
                 for slot, value in zip(batch, translated):
                     results[slot] = value
                     with self._lock:
-                        self.cache[self._key(model, texts[slot])] = value
+                        self.cache[self._key(engine, texts[slot])] = value
 
         with self._lock:
             self._save()

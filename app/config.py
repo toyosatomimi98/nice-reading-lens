@@ -42,8 +42,13 @@ CERT_DIR = DATA_DIR / "certs"
 @dataclass
 class Settings:
     # ---- 翻译（走本地 ollama）----
+    mt_backend: str = "ollama"        # ollama 本地 / openai 兼容接口（DeepSeek 等）
     ollama_url: str = "http://127.0.0.1:11434"
     model: str = "qwen3:8b"
+    # 云端那套只在 mt_backend=openai 时用。key 也可以放在环境变量 DEEPSEEK_API_KEY 里
+    api_base: str = "https://api.deepseek.com"
+    api_key: str = ""
+    api_model: str = "deepseek-chat"
     temperature: float = 0.2
     num_ctx: int = 8192
     context_chars: int = 320          # 上一页结尾带入的前文长度

@@ -4,8 +4,12 @@ const $ = (id) => document.getElementById(id);
 const main = $('main');
 
 const LABELS = {
+  mt_backend: ['翻译后端', 'select', ['ollama', 'openai']],
   model: ['翻译模型', 'text'],
   ollama_url: ['Ollama 地址', 'text'],
+  api_base: ['云端接口地址', 'text'],
+  api_model: ['云端模型名', 'text'],
+  api_key: ['云端 API Key', 'text'],
   temperature: ['采样温度', 'number'],
   num_ctx: ['上下文窗口', 'number'],
   context_chars: ['带入前文长度', 'number'],
@@ -385,8 +389,9 @@ function renderDrawer() {
         return `<label class="field"><span>${label}</span>
           <select data-key="${key}">${opts}</select></label>`;
       }
+      const inputType = key === 'api_key' ? 'password' : kind;
       return `<label class="field"><span>${label}</span>
-        <input type="${kind}" step="any" data-key="${key}" value="${esc(value)}"></label>`;
+        <input type="${inputType}" step="any" data-key="${key}" value="${esc(value)}"></label>`;
     })
     .join('');
 

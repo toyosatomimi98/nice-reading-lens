@@ -175,7 +175,7 @@ class Pipeline:
                 "translate": translate_ms,
                 "total": int((time.time() - started) * 1000),
             },
-            "engine": {"ocr": "RapidOCR", "mt": s.model, "source": source},
+            "engine": {"ocr": "RapidOCR", "mt": self.translator.engine_name(), "source": source},
         }
 
         await asyncio.to_thread(self._persist, page, image, raw)

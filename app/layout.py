@@ -19,6 +19,36 @@ HEADING = re.compile(
 )
 MATH_CHARS = set("=+−-×÷<>≤≥∑∏∫√≈≠^_{}[]|/\\")
 
+# 最常见的英文小词。方向选错时识别出来的是一串糊在一起的怪字符串，
+# 命中率会塌下来，所以拿它当「这个方向对不对」的判据。
+COMMON_WORDS = frozenset(
+    """the of and to in a is that it for was as with his her he she be on at by this had not
+    are but from or have an they which one you were all their we when your can said there use
+    each about if how will up out them then many some so these would other into has more two
+    like him see time could no make than first been its who now people my over did down only
+    way find long any new work part take get place made live where after back little round man
+    year came show every good me give our under name very through just form much great think
+    say help low line before turn cause same mean differ move right boy old too does tell
+    sentence set three want air well also play small end put home read hand port large spell
+    add even land here must big high such follow act why ask men change went light kind off
+    need house picture try us again animal point mother world near build self earth father head""".split()
+)
+
+WORD = re.compile(r"[A-Za-z']+")
+
+
+def word_score(texts) -> float:
+    """识别结果里常见英文小词占的比例。
+
+    页面方向转错时，识别出来的词会被糊成一串（"sticksleast letsnightun" 这种），
+    命中率明显偏低。用它来在两个旋转方向里挑一个，比看置信度靠谱——置信度对
+    糊掉的字照样给 0.95。
+    """
+    words = [w for w in WORD.findall(" ".join(texts).lower()) if len(w) > 1]
+    if len(words) < 20:  # 样本太少不下结论
+        return 0.0
+    return sum(1 for w in words if w in COMMON_WORDS) / float(len(words))
+
 
 def _bbox(box) -> tuple[float, float, float, float]:
     pts = np.asarray(box, dtype=np.float32)

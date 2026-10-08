@@ -10,7 +10,7 @@ from pathlib import Path
 
 from . import imaging
 from .gate import PageGate
-from .layout import build_blocks
+from .layout import build_blocks, word_score
 from .ocr import OcrEngine
 from .store import Session
 from .translate import Translator
@@ -102,6 +102,17 @@ class Pipeline:
         if s.rectify:
             image, rectified = await asyncio.to_thread(imaging.rectify, raw)
         image = await asyncio.to_thread(imaging.enhance, image)
+
+        # 手机横着拿的时候，书页在画面里是躺着的。先转正，后面的分割和识别才有意义。
+        rotated = False
+        if s.auto_rotate:
+            probe = await asyncio.to_thread(imaging.shrink, image, 1000)
+            boxes = await asyncio.to_thread(self.ocr.detect, probe)
+            if imaging.looks_sideways(boxes):
+                turns = await asyncio.to_thread(self._pick_turn, image)
+                image = await asyncio.to_thread(imaging.quarter_turn, image, turns)
+                rotated = True
+
         signature = imaging.dhash(imaging.to_gray(imaging.shrink(image, 480)))
 
         pieces = imaging.split_spread(image, s.split_mode, s.split_order)
@@ -154,6 +165,7 @@ class Pipeline:
             "width": int(image.shape[1]),
             "height": int(image.shape[0]),
             "rectified": rectified,
+            "rotated": rotated,
             "split": [p["label"] for p in pieces],
             "hash": signature,
             "source_text": " ".join(texts)[:4000],
@@ -175,6 +187,29 @@ class Pipeline:
         )
 
     # ---- 辅助 ----
+
+    def _pick_turn(self, image):
+        """躺倒的页面往哪边转？两个方向各识别一遍，谁读出来的行多就听谁的。
+
+        只在确认页面躺倒时才走这条路，正常页面一次都不会付这个成本。
+
+        为什么要看行数而不是词频：方向转错时文字上下颠倒，识别器基本读不出东西，
+        实测正确方向 17 行、错误方向 2 行，差得很开。词频反而会骗人——糊掉的
+        文本照样能凑出像词的东西，两个方向各 0.11 分不出高下，所以只当平局时的参考。
+
+        另外判方向必须用原分辨率，而且要先转再裁：缩到 900 宽文字只剩十几个像素，
+        两边一样烂；横着裁一条会在竖排的页面上切断每一行。
+        """
+        best_turn, best_key = 1, (-1, -1.0)
+        for turns in (1, 3):  # 1 逆时针，3 顺时针
+            rotated = imaging.quarter_turn(image, turns)
+            height = rotated.shape[0]
+            strip = rotated[int(height * 0.08):int(height * 0.55)]
+            lines = self.ocr.read(strip)
+            key = (len(lines), word_score([line["text"] for line in lines]))
+            if key > best_key:
+                best_turn, best_key = turns, key
+        return best_turn
 
     def _persist(self, page: dict, image, raw) -> None:
         self.session.path_for(page["id"], "view").write_bytes(

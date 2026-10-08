@@ -35,6 +35,30 @@ def thumb(img: np.ndarray, max_width: int = 720, quality: int = 78) -> bytes:
     return encode_jpeg(shrink(img, max_width), quality)
 
 
+def quarter_turn(img: np.ndarray, turns: int) -> np.ndarray:
+    """整幅旋转 90°×turns，正数逆时针。"""
+    return np.ascontiguousarray(np.rot90(img, k=turns % 4))
+
+
+def looks_sideways(boxes, min_boxes: int = 5, ratio: float = 1.2) -> bool:
+    """看文字框是「竖着的高条」还是「横着的长条」，判断页面有没有躺倒。
+
+    手机横着拿的时候书页在画面里是躺着的，文字行变成竖方向，OCR 会成片漏掉。
+    实测正常横排页面框的中位宽高比约 0.12，躺倒的约 8.1，中间隔了两个数量级，
+    所以用中位数判很稳。框太少（画面里没多少字）就不下结论。
+    """
+    ratios = []
+    for box in boxes:
+        pts = np.asarray(box, dtype=np.float32)
+        width = float(pts[:, 0].max() - pts[:, 0].min())
+        height = float(pts[:, 1].max() - pts[:, 1].min())
+        if width > 4 and height > 4:
+            ratios.append(height / width)
+    if len(ratios) < min_boxes:
+        return False
+    return float(np.median(ratios)) > ratio
+
+
 def enhance(img: np.ndarray) -> np.ndarray:
     """轻度增强：拉一点局部对比度。不做二值化，OCR 自己会处理。"""
     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)

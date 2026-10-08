@@ -25,6 +25,13 @@ class OcrEngine:
     def warmup(self) -> None:
         self._ensure()
 
+    def detect(self, img: np.ndarray) -> list:
+        """只跑文本检测，不跑识别。用来判断页面方向，比整条流程便宜得多。"""
+        boxes, _ = self._ensure().text_det(img)
+        if boxes is None:
+            return []
+        return [np.asarray(box, dtype=np.float32) for box in boxes]
+
     def read(self, img: np.ndarray, min_confidence: float = 0.0) -> list[dict]:
         """返回 [{box, text, score, height}]，box 为四点多边形，顺序即引擎给出的顺序。"""
         result, _ = self._ensure()(img)

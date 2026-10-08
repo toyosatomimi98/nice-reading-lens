@@ -63,6 +63,7 @@ class Settings:
     split_mode: str = "auto"          # auto / on / off
     split_order: str = "lr"           # lr 左页在前；rl 右页在前
     rectify: bool = True
+    auto_rotate: bool = True          # 横屏拍歪的书页自动转正
 
     # ---- 阅读呈现 ----
     reading_mode: str = "standard"    # light / standard / immersive

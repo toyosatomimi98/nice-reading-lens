@@ -19,6 +19,7 @@ const LABELS = {
   split_mode: ['双页分割', 'select', ['auto', 'on', 'off']],
   split_order: ['左右页顺序', 'select', ['lr', 'rl']],
   rectify: ['自动摆正页面', 'bool'],
+  auto_rotate: ['自动转正横屏拍歪的书页', 'bool'],
   reading_mode: ['默认阅读模式', 'select', ['light', 'standard', 'immersive']],
   auto_switch: ['新页自动切换', 'bool'],
   keep_anchor: ['保留阅读位置', 'bool'],
@@ -215,6 +216,7 @@ function standardHtml(page) {
     <div class="pagehead"><span>第 ${page.index} 页</span><span>${esc(meta)}</span>
       <span class="grow" style="flex:1"></span>
       ${page.rectified ? '<span>已摆正</span>' : ''}
+      ${page.rotated ? '<span>已转正</span>' : ''}
       ${page.split.length === 2 ? `<span>${page.split[0] === 'left' ? '左页在前' : '右页在前'}</span>` : ''}
     </div>
     ${page.blocks.map((b) => blockHtml(b, true)).join('')}

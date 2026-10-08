@@ -1,4 +1,4 @@
-; Inno Setup 6 脚本。
+﻿; Inno Setup 6 脚本。
 ; 编译：ISCC.exe packaging\installer.iss
 ; 前置：先跑过 PyInstaller，dist\ReadingHelper\ 里有东西。
 ;
@@ -24,8 +24,8 @@ OutputBaseFilename={#AppNameEn}-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\{#ExeName}
 ; 由 make_icon.py 在打包前生成，构建脚本保证它存在
@@ -52,7 +52,7 @@ Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""NiceReading
 Filename: "{app}\{#ExeName}"; Description: "立即启动 {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""NiceReadingLens"""; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""NiceReadingLens"""; Flags: runhidden; RunOnceId: "RemoveFirewallRule"
 
 [Code]
 function OllamaInstalled(): Boolean;

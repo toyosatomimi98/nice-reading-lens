@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import ipaddress
+import json
 import os
 import shutil
 import socket
@@ -140,17 +141,26 @@ def ensure_cert(ip: str) -> tuple[Path, Path]:
     return cert, key
 
 
-def check_ollama() -> str | None:
-    """启动时体检一下翻译后端，别等用户翻完页才发现没有中文。"""
-    settings = Config().value
+def check_ollama() -> None:
+    """启动时体检一下翻译后端，别等用户翻完页才发现没有中文。
+
+    这只是个提示，任何意外都不该拦住服务——之前就因为少 import 一个模块，
+    整个程序打印完地址之后直接崩掉。
+    """
+    try:
+        settings = Config().value
+    except Exception:
+        return
+
     url = settings.ollama_url.rstrip("/")
     try:
         with urllib.request.urlopen(f"{url}/api/tags", timeout=2.0) as response:
-            models = [m.get("name", "") for m in json.loads(response.read()).get("models", [])]
-    except (urllib.error.URLError, OSError, ValueError):
+            payload = json.loads(response.read())
+        models = [str(m.get("name", "")) for m in payload.get("models", [])]
+    except Exception:
         print(f"  ⚠ 连不上 Ollama（{url}）。识别照常，但不会出中文。")
         print("    去 https://ollama.com/download 装一个，然后 ollama pull qwen3:8b")
-        return None
+        return
 
     if not models:
         print("  ⚠ Ollama 在跑，但一个模型都没有。先执行：ollama pull qwen3:8b")
@@ -159,7 +169,6 @@ def check_ollama() -> str | None:
         print(f"    可以 ollama pull {settings.model}，或在设置里换成已有的模型")
     else:
         print(f"  翻译模型：{settings.model}")
-    return settings.model
 
 
 def print_qr(url: str) -> None:

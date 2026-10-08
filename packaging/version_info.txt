@@ -16,11 +16,11 @@ VSVersionInfo(
           "080404B0",
           [
             StringStruct("CompanyName", "Reading Helper"),
-            StringStruct("FileDescription", "纸质书阅读助手"),
+            StringStruct("FileDescription", "\u7eb8\u8d28\u4e66\u9605\u8bfb\u52a9\u624b"),
             StringStruct("FileVersion", "0.1.0"),
             StringStruct("InternalName", "NiceReadingLens"),
             StringStruct("OriginalFilename", "NiceReadingLens.exe"),
-            StringStruct("ProductName", "纸质书阅读助手"),
+            StringStruct("ProductName", "\u7eb8\u8d28\u4e66\u9605\u8bfb\u52a9\u624b"),
             StringStruct("ProductVersion", "0.1.0"),
           ],
         )
